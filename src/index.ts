@@ -17,10 +17,13 @@ class MainScene extends Phaser.Scene {
 
 const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 600,
     scene: MainScene,
     parent: 'game-container',
+    scale: {
+      mode: Phaser.Scale.RESIZE, // Dynamically resize the game to fit the screen
+        width: '100%',
+        height: '100%',
+        },
 };
 
 // Check if the game is already created to avoid duplicate instances
