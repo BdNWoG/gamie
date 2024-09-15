@@ -23,4 +23,7 @@ const config: Phaser.Types.Core.GameConfig = {
     parent: 'game-container',
 };
 
-new Phaser.Game(config);
+// Check if the game is already created to avoid duplicate instances
+if (!window.game) {
+    window.game = new Phaser.Game(config);
+}
