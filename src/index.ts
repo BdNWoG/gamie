@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 class MainScene extends Phaser.Scene {
   private character: Phaser.GameObjects.Sprite | undefined;
+  private enemies: { sprite: Phaser.GameObjects.Sprite, x: number, y: number }[] = []; // Enemies with their grid positions
   private gridSize: number = 64; // Size of each grid square (64x64)
   private rows: number = 50;    // Fixed number of rows (50)
   private cols: number = 50;    // Fixed number of columns (50)
@@ -9,7 +10,7 @@ class MainScene extends Phaser.Scene {
   private isDragging: boolean = false;
   private dragStartPoint: { x: number; y: number } = { x: 0, y: 0 };
   private actionMenu: Phaser.GameObjects.Container | undefined; // Menu container
-  private highlightedTiles: Phaser.GameObjects.Rectangle[] = []; // Highlighted tiles for movement
+  private highlightedTiles: Phaser.GameObjects.Rectangle[] = []; // Highlighted tiles for movement or attack
   private lastClickTime: number = 0; // Timestamp of the last click
   private doubleClickThreshold: number = 300; // Maximum time in ms between two clicks to be considered a double-click
 
@@ -18,8 +19,9 @@ class MainScene extends Phaser.Scene {
   }
 
   preload() {
-    // Load the character sprite
+    // Load the character and enemy sprites
     this.load.image('character', 'assets/character.png'); // Add your character image path
+    this.load.image('enemy', 'assets/enemy.png'); // Add your enemy image path
   }
 
   create() {
@@ -59,6 +61,9 @@ class MainScene extends Phaser.Scene {
         deltaZ: number
       ) => this.handleZoom(deltaY)
     );
+
+    // Randomly create 3 enemies on the map
+    this.spawnEnemies();
   }
 
   createGrid() {
@@ -111,17 +116,17 @@ class MainScene extends Phaser.Scene {
       attackText
     ]);
 
-    // Make the menu options interactive (move)
+    // Make the move option interactive
     moveText.setInteractive();
     moveText.on('pointerdown', () => {
       this.highlightMovableTiles();
       this.actionMenu?.destroy(); // Remove menu after selecting an action
     });
 
-    // Attack is not implemented yet, but let's just log it for now
+    // Make the attack option interactive
     attackText.setInteractive();
     attackText.on('pointerdown', () => {
-      console.log('Attack selected');
+      this.highlightEnemyBlocks();
       this.actionMenu?.destroy(); // Remove menu after selecting an action
     });
   }
@@ -170,6 +175,65 @@ class MainScene extends Phaser.Scene {
 
     // Clear the highlighted tiles
     this.clearHighlightedTiles();
+  }
+
+  highlightEnemyBlocks() {
+    // Clear any previously highlighted tiles
+    this.clearHighlightedTiles();
+
+    // Get the character's current grid position
+    const charX = Math.floor(this.character!.x / this.gridSize);
+    const charY = Math.floor(this.character!.y / this.gridSize);
+
+    // Highlight blocks where enemies are within 1 block of the character
+    this.enemies.forEach(({ sprite, x, y }) => {
+      const distance = Math.abs(x - charX) + Math.abs(y - charY);
+
+      if (distance === 1) {
+        // Highlight the block where the enemy is by changing the tile's color
+        const tile = this.grid[y][x];
+        tile.setFillStyle(0xff0000); // Highlight with red color
+        this.highlightedTiles.push(tile);
+
+        // Make the tile clickable to attack the enemy
+        tile.setInteractive();
+        tile.once('pointerdown', () => {
+          this.killEnemy(sprite, tile);
+        });
+      }
+    });
+  }
+
+  killEnemy(enemy: Phaser.GameObjects.Sprite, tile: Phaser.GameObjects.Rectangle) {
+    // Remove the enemy sprite from the scene
+    enemy.destroy();
+
+    // Remove the tile's highlight and interaction
+    tile.setFillStyle(0x000000);
+    tile.removeInteractive();
+
+    // Remove the enemy from the enemies array
+    this.enemies = this.enemies.filter((e) => e.sprite !== enemy);
+
+    // Clear highlighted tiles
+    this.clearHighlightedTiles();
+  }
+
+  spawnEnemies() {
+    // Spawn 3 enemies at random locations on the grid
+    for (let i = 0; i < 3; i++) {
+      const randomX = Phaser.Math.Between(0, this.cols - 1);
+      const randomY = Phaser.Math.Between(0, this.rows - 1);
+
+      const enemySprite = this.add.sprite(
+        randomX * this.gridSize + this.gridSize / 2,
+        randomY * this.gridSize + this.gridSize / 2,
+        'enemy'
+      );
+
+      // Store the enemy's grid position
+      this.enemies.push({ sprite: enemySprite, x: randomX, y: randomY });
+    }
   }
 
   startDrag(pointer: Phaser.Input.Pointer) {
