@@ -4,8 +4,8 @@ class MainScene extends Phaser.Scene {
   private character: Phaser.GameObjects.Sprite | undefined;
   private enemies: { sprite: Phaser.GameObjects.Sprite, x: number, y: number }[] = []; // Enemies with their grid positions
   private gridSize: number = 64; // Size of each grid square (64x64)
-  private rows: number = 50;    // Fixed number of rows (50)
-  private cols: number = 50;    // Fixed number of columns (50)
+  private rows: number = 40;    // Fixed number of rows (50)
+  private cols: number = 40;    // Fixed number of columns (50)
   private grid: Phaser.GameObjects.Rectangle[][] = [];
   private isDragging: boolean = false;
   private dragStartPoint: { x: number; y: number } = { x: 0, y: 0 };
@@ -38,6 +38,8 @@ class MainScene extends Phaser.Scene {
       (this.rows / 2) * this.gridSize + this.gridSize / 2,
       'character'
     );
+
+    this.character.setScale(0.4);
 
     // Enable double-click detection on the character
     this.character.setInteractive({ useHandCursor: true });
@@ -230,6 +232,8 @@ class MainScene extends Phaser.Scene {
         randomY * this.gridSize + this.gridSize / 2,
         'enemy'
       );
+
+      enemySprite.setScale(0.4); 
 
       // Store the enemy's grid position
       this.enemies.push({ sprite: enemySprite, x: randomX, y: randomY });
