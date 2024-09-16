@@ -5,6 +5,7 @@ class MainScene extends Phaser.Scene {
   private characterHealth: number = 100;
   private characterMana: number = 50;
   private characterExperience: number = 0;
+  private characterLevel: number = 1;
   private characterHealthMenu: Phaser.GameObjects.Container | undefined;
 
   private enemies: {
@@ -12,6 +13,7 @@ class MainScene extends Phaser.Scene {
     health: number,
     mana: number,
     experience: number,
+    level: number,
     attributes: { [key: string]: number },
     equipment: { [key: string]: string | null },
     x: number,
@@ -29,7 +31,6 @@ class MainScene extends Phaser.Scene {
   private actionMenu: Phaser.GameObjects.Container | undefined;
   private highlightedTiles: Phaser.GameObjects.Rectangle[] = [];
   private lastClickTime: number = 0;
-  private doubleClickThreshold: number = 300;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -56,15 +57,17 @@ class MainScene extends Phaser.Scene {
     );
     this.character.setScale(0.4);
 
-    // Create a stats menu for the character
-    this.characterHealthMenu = this.createStatsMenu(this.characterHealth, this.characterMana, this.characterExperience, this.character!.x, this.character!.y - 60);
+    // Create a stats menu for the character, including the Level
+    this.characterHealthMenu = this.createStatsMenu(
+      this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel, this.character!.x, this.character!.y - 60
+    );
     this.characterHealthMenu.setVisible(false);
 
-    // Enable hover to show health, mana, and experience menu for the character
+    // Enable hover to show health, mana, experience, and level menu for the character
     this.character.setInteractive();
     this.character.on('pointerover', () => {
       if (this.characterHealthMenu) {
-        this.updateStatsMenu(this.characterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience);
+        this.updateStatsMenu(this.characterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel);
         this.characterHealthMenu.setVisible(true);
       }
     });
@@ -76,10 +79,19 @@ class MainScene extends Phaser.Scene {
 
     // Left-click event for showing the action menu
     this.character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      this.handleDoubleClick(pointer);
+      this.showActionMenu();
     });
 
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.startDrag(pointer));
+    // Right-click to close attribute menu
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown() && this.attributeMenu) {
+        this.attributeMenu.destroy();
+        this.attributeMenu = undefined;
+      } else {
+        this.startDrag(pointer);
+      }
+    });
+    
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.drag(pointer));
     this.input.on('pointerup', () => this.stopDrag());
 
@@ -105,17 +117,6 @@ class MainScene extends Phaser.Scene {
         this.grid[row][col] = tile;
       }
     }
-  }
-
-  handleDoubleClick(pointer: Phaser.Input.Pointer) {
-    const currentTime = pointer.downTime;
-    const timeSinceLastClick = currentTime - this.lastClickTime;
-
-    if (timeSinceLastClick <= this.doubleClickThreshold) {
-      this.showActionMenu();
-    }
-
-    this.lastClickTime = currentTime;
   }
 
   showActionMenu() {
@@ -278,27 +279,29 @@ class MainScene extends Phaser.Scene {
         helmet: null, chestplate: null, leggings: null, boots: null
       };
 
+      const level = 1;
+
       enemySprite.setInteractive();
       enemySprite.on('pointerdown', () => {
-        this.handleLeftClick(enemySprite, attributes, equipment);
+        this.handleLeftClick(enemySprite, attributes, equipment, level);
       });
 
-      const enemyHealthMenu = this.createStatsMenu(100, 50, 0, enemySprite.x, enemySprite.y - 60);
+      const enemyHealthMenu = this.createStatsMenu(100, 50, 0, level, enemySprite.x, enemySprite.y - 60);
       enemyHealthMenu.setVisible(false);
 
       enemySprite.on('pointerover', () => {
-        this.updateStatsMenu(enemyHealthMenu, 100, 50, 0);
+        this.updateStatsMenu(enemyHealthMenu, 100, 50, 0, level);
         enemyHealthMenu.setVisible(true);
       });
       enemySprite.on('pointerout', () => {
         enemyHealthMenu.setVisible(false);
       });
 
-      this.enemies.push({ sprite: enemySprite, health: 100, mana: 50, experience: 0, attributes, equipment, x: randomX, y: randomY, healthMenu: enemyHealthMenu });
+      this.enemies.push({ sprite: enemySprite, health: 100, mana: 50, experience: 0, level, attributes, equipment, x: randomX, y: randomY, healthMenu: enemyHealthMenu });
     }
   }
 
-  handleLeftClick(sprite: Phaser.GameObjects.Sprite, attributes: { [key: string]: number }, equipment: { [key: string]: string | null }) {
+  handleLeftClick(sprite: Phaser.GameObjects.Sprite, attributes: { [key: string]: number }, equipment: { [key: string]: string | null }, level: number) {
     if (this.attributeMenu) {
       this.attributeMenu.destroy();
       this.attributeMenu = undefined;
@@ -338,62 +341,73 @@ class MainScene extends Phaser.Scene {
     this.attributeMenu = this.add.container(sprite.x, sprite.y, [menuBackground, ...attrTextObjects, ...equipmentSlots.flat()]);
   }
 
-  createStatsMenu(health: number, mana: number, experience: number, x: number, y: number): Phaser.GameObjects.Container {
+  createStatsMenu(health: number, mana: number, experience: number, level: number, x: number, y: number): Phaser.GameObjects.Container {
     const maxHealth = 100;
     const maxMana = 50;
     const maxExperience = 100;
 
-    const menuBackground = this.add.rectangle(0, 0, 80, 60, 0x333333).setOrigin(0.5);
+    const menuBackground = this.add.rectangle(0, 0, 80, 80, 0x333333).setOrigin(0.5);
+
+    const levelLabel = this.add.text(-32, -50, `Level ${level}`, { fontSize: '12px', color: '#fff' });
 
     const healthBar = this.add.graphics();
     healthBar.fillStyle(0xff0000, 1);
-    healthBar.fillRect(-32, -20, (health / maxHealth) * 64, 5);
+    healthBar.fillRect(-32, -30, (health / maxHealth) * 64, 5);
 
-    const healthLabel = this.add.text(-32, -30, `${health}/${maxHealth}`, { fontSize: '10px', color: '#fff' });
+    const healthLabel = this.add.text(-32, -40, `${health}/${maxHealth}`, { fontSize: '10px', color: '#fff' });
 
     const manaBar = this.add.graphics();
     manaBar.fillStyle(0x0000ff, 1);
-    manaBar.fillRect(-32, -10, (mana / maxMana) * 64, 5);
+    manaBar.fillRect(-32, -20, (mana / maxMana) * 64, 5);
 
-    const manaLabel = this.add.text(-32, -20, `${mana}/${maxMana}`, { fontSize: '10px', color: '#fff' });
+    const manaLabel = this.add.text(-32, -30, `${mana}/${maxMana}`, { fontSize: '10px', color: '#fff' });
 
     const experienceBar = this.add.graphics();
     experienceBar.fillStyle(0x00ff00, 1);
-    experienceBar.fillRect(-32, 0, (experience / maxExperience) * 64, 5);
+    experienceBar.fillRect(-32, -10, (experience / maxExperience) * 64, 5);
 
-    const experienceLabel = this.add.text(-32, -10, `${experience}/${maxExperience}`, { fontSize: '10px', color: '#fff' });
+    const experienceLabel = this.add.text(-32, -20, `${experience}/${maxExperience}`, { fontSize: '10px', color: '#fff' });
 
-    const statsMenu = this.add.container(x, y, [menuBackground, healthBar, healthLabel, manaBar, manaLabel, experienceBar, experienceLabel]);
+    const statsMenu = this.add.container(x, y, [
+      menuBackground,
+      levelLabel,
+      healthBar, healthLabel,
+      manaBar, manaLabel,
+      experienceBar, experienceLabel
+    ]);
     return statsMenu;
   }
 
-  updateStatsMenu(statsMenu: Phaser.GameObjects.Container, health: number, mana: number, experience: number) {
+  updateStatsMenu(statsMenu: Phaser.GameObjects.Container, health: number, mana: number, experience: number, level: number) {
     const maxHealth = 100;
     const maxMana = 50;
     const maxExperience = 100;
 
-    const healthBar = statsMenu.getAt(1) as Phaser.GameObjects.Graphics;
+    const levelLabel = statsMenu.getAt(1) as Phaser.GameObjects.Text;
+    levelLabel.setText(`Level ${level}`);
+
+    const healthBar = statsMenu.getAt(2) as Phaser.GameObjects.Graphics;
     healthBar.clear();
     healthBar.fillStyle(0xff0000, 1);
-    healthBar.fillRect(-32, -20, (health / maxHealth) * 64, 5);
+    healthBar.fillRect(-32, -30, (health / maxHealth) * 64, 5);
 
-    const healthLabel = statsMenu.getAt(2) as Phaser.GameObjects.Text;
+    const healthLabel = statsMenu.getAt(3) as Phaser.GameObjects.Text;
     healthLabel.setText(`${health}/${maxHealth}`);
 
-    const manaBar = statsMenu.getAt(3) as Phaser.GameObjects.Graphics;
+    const manaBar = statsMenu.getAt(4) as Phaser.GameObjects.Graphics;
     manaBar.clear();
     manaBar.fillStyle(0x0000ff, 1);
-    manaBar.fillRect(-32, -10, (mana / maxMana) * 64, 5);
+    manaBar.fillRect(-32, -20, (mana / maxMana) * 64, 5);
 
-    const manaLabel = statsMenu.getAt(4) as Phaser.GameObjects.Text;
+    const manaLabel = statsMenu.getAt(5) as Phaser.GameObjects.Text;
     manaLabel.setText(`${mana}/${maxMana}`);
 
-    const experienceBar = statsMenu.getAt(5) as Phaser.GameObjects.Graphics;
+    const experienceBar = statsMenu.getAt(6) as Phaser.GameObjects.Graphics;
     experienceBar.clear();
     experienceBar.fillStyle(0x00ff00, 1);
-    experienceBar.fillRect(-32, 0, (experience / maxExperience) * 64, 5);
+    experienceBar.fillRect(-32, -10, (experience / maxExperience) * 64, 5);
 
-    const experienceLabel = statsMenu.getAt(6) as Phaser.GameObjects.Text;
+    const experienceLabel = statsMenu.getAt(7) as Phaser.GameObjects.Text;
     experienceLabel.setText(`${experience}/${maxExperience}`);
   }
 
