@@ -2,11 +2,13 @@ import Phaser from 'phaser';
 
 class MainScene extends Phaser.Scene {
   private character: Phaser.GameObjects.Sprite | undefined;
+  private secondCharacter: Phaser.GameObjects.Sprite | undefined;
   private characterHealth: number = 100;
   private characterMana: number = 50;
   private characterExperience: number = 0;
   private characterLevel: number = 1;
   private characterHealthMenu: Phaser.GameObjects.Container | undefined;
+  private secondCharacterHealthMenu: Phaser.GameObjects.Container | undefined;
 
   private enemies: {
     sprite: Phaser.GameObjects.Sprite,
@@ -26,6 +28,8 @@ class MainScene extends Phaser.Scene {
   private rows: number = 40;
   private cols: number = 40;
   private grid: Phaser.GameObjects.Rectangle[][] = [];
+  private fogLayer: Phaser.GameObjects.Rectangle[][] = []; // Fog of war layer
+  private fogRadius: number = 10; // Radius of visibility in blocks
   private isDragging: boolean = false;
   private dragStartPoint: { x: number; y: number } = { x: 0, y: 0 };
   private actionMenu: Phaser.GameObjects.Container | undefined;
@@ -49,7 +53,7 @@ class MainScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.cols * this.gridSize, this.rows * this.gridSize);
     this.createGrid();
 
-    // Create the character in the center of the grid
+    // Create the first character in the center of the grid
     this.character = this.add.sprite(
       (this.cols / 2) * this.gridSize + this.gridSize / 2,
       (this.rows / 2) * this.gridSize + this.gridSize / 2,
@@ -57,13 +61,26 @@ class MainScene extends Phaser.Scene {
     );
     this.character.setScale(0.4);
 
-    // Create a stats menu for the character, including the Level
+    // Create the second character at position (0, 0)
+    this.secondCharacter = this.add.sprite(
+      0 * this.gridSize + this.gridSize / 2,
+      0 * this.gridSize + this.gridSize / 2,
+      'character'
+    );
+    this.secondCharacter.setScale(0.4);
+
+    // Create a stats menu for both characters
     this.characterHealthMenu = this.createStatsMenu(
       this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel, this.character!.x, this.character!.y - 60
     );
     this.characterHealthMenu.setVisible(false);
 
-    // Enable hover to show health, mana, experience, and level menu for the character
+    this.secondCharacterHealthMenu = this.createStatsMenu(
+      this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel, this.secondCharacter!.x, this.secondCharacter!.y - 60
+    );
+    this.secondCharacterHealthMenu.setVisible(false);
+
+    // Enable hover to show health, mana, experience, and level menu for both characters
     this.character.setInteractive();
     this.character.on('pointerover', () => {
       if (this.characterHealthMenu) {
@@ -77,10 +94,29 @@ class MainScene extends Phaser.Scene {
       }
     });
 
+    this.secondCharacter.setInteractive();
+    this.secondCharacter.on('pointerover', () => {
+      if (this.secondCharacterHealthMenu) {
+        this.updateStatsMenu(this.secondCharacterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel);
+        this.secondCharacterHealthMenu.setVisible(true);
+      }
+    });
+    this.secondCharacter.on('pointerout', () => {
+      if (this.secondCharacterHealthMenu) {
+        this.secondCharacterHealthMenu.setVisible(false);
+      }
+    });
+
     // Left-click for the action menu
-    this.character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown()) {
-        this.showActionMenu();
+    this.character?.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown() && this.character) {
+        this.showActionMenu(this.character);
+      }
+    });
+
+    this.secondCharacter?.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown() && this.secondCharacter) {
+        this.showActionMenu(this.secondCharacter);
       }
     });
 
@@ -88,6 +124,12 @@ class MainScene extends Phaser.Scene {
     this.character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonDown()) {
         this.toggleAttributeMenu(this.character!, { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 }, { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null }, this.characterLevel);
+      }
+    });
+
+    this.secondCharacter.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) {
+        this.toggleAttributeMenu(this.secondCharacter!, { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 }, { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null }, this.characterLevel);
       }
     });
 
@@ -100,7 +142,8 @@ class MainScene extends Phaser.Scene {
       this.handleZoom(deltaY);
     });
 
-    // Spawn enemies
+    // Create fog of war and spawn enemies
+    this.createFogOfWar();
     this.spawnEnemies();
   }
 
@@ -118,6 +161,59 @@ class MainScene extends Phaser.Scene {
         this.grid[row][col] = tile;
       }
     }
+  }
+
+  createFogOfWar() {
+    for (let row = 0; row < this.rows; row++) {
+      this.fogLayer[row] = [];
+      for (let col = 0; col < this.cols; col++) {
+        const fogTile = this.add.rectangle(
+          col * this.gridSize + this.gridSize / 2,
+          row * this.gridSize + this.gridSize / 2,
+          this.gridSize,
+          this.gridSize,
+          0x555555,
+          0.7
+        ).setDepth(10); // Ensure the fog is rendered above everything else
+        this.fogLayer[row][col] = fogTile;
+      }
+    }
+    this.updateFogOfWar();
+  }
+
+  updateFogOfWar() {
+    const charX1 = Math.floor(this.character!.x / this.gridSize);
+    const charY1 = Math.floor(this.character!.y / this.gridSize);
+    const charX2 = Math.floor(this.secondCharacter!.x / this.gridSize);
+    const charY2 = Math.floor(this.secondCharacter!.y / this.gridSize);
+
+    // Loop through all tiles to update fog visibility based on both characters' positions
+    for (let row = 0; row < this.rows; row++) {
+      for (let col = 0; col < this.cols; col++) {
+        const distance1 = Math.abs(col - charX1) + Math.abs(row - charY1);
+        const distance2 = Math.abs(col - charX2) + Math.abs(row - charY2);
+
+        if (distance1 <= this.fogRadius || distance2 <= this.fogRadius) {
+          this.fogLayer[row][col].setVisible(false); // Remove fog if within either character's radius
+        } else {
+          this.fogLayer[row][col].setVisible(true); // Apply fog if outside both characters' radius
+        }
+      }
+    }
+
+    // Hide or show enemies based on fog
+    this.enemies.forEach(({ sprite, x, y }) => {
+      const distance1 = Math.abs(x - charX1) + Math.abs(y - charY1);
+      const distance2 = Math.abs(x - charX2) + Math.abs(y - charY2);
+
+      if (distance1 <= this.fogRadius || distance2 <= this.fogRadius) {
+        sprite.setVisible(true); // Enemy is visible
+        sprite.setInteractive();
+      } else {
+        sprite.setVisible(false); // Hide enemy in fog
+        sprite.disableInteractive(); // Prevent interaction with enemies in fog
+      }
+    });
   }
 
   toggleAttributeMenu(sprite: Phaser.GameObjects.Sprite, attributes: { [key: string]: number }, equipment: { [key: string]: string | null }, level: number) {
@@ -168,7 +264,7 @@ class MainScene extends Phaser.Scene {
     this.attributeMenu = this.add.container(sprite.x, sprite.y, [menuBackground, levelText, ...attrTextObjects, ...equipmentSlots.flat()]);
   }
 
-  showActionMenu() {
+  showActionMenu(character: Phaser.GameObjects.Sprite) {
     if (this.actionMenu) {
       this.actionMenu.destroy();
       this.actionMenu = undefined;
@@ -185,7 +281,7 @@ class MainScene extends Phaser.Scene {
     const holdText = this.add.text(menuWidth / 2, 100, 'Hold', textStyle).setOrigin(0.5);
     const cancelText = this.add.text(menuWidth / 2, 130, 'Cancel', textStyle).setOrigin(0.5);
 
-    this.actionMenu = this.add.container(this.character?.x || 0, this.character?.y || 0, [
+    this.actionMenu = this.add.container(character.x || 0, character.y || 0, [
       menuBackground,
       moveText,
       attackText,
@@ -196,7 +292,7 @@ class MainScene extends Phaser.Scene {
 
     moveText.setInteractive();
     moveText.on('pointerdown', () => {
-      this.highlightMovableTiles();
+      this.highlightMovableTiles(character);
       this.actionMenu?.destroy();
     });
 
@@ -232,11 +328,11 @@ class MainScene extends Phaser.Scene {
     console.log("Hold action triggered!");
   }
 
-  highlightMovableTiles() {
+  highlightMovableTiles(character: Phaser.GameObjects.Sprite) {
     this.clearHighlightedTiles();
 
-    const charX = Math.floor(this.character!.x / this.gridSize);
-    const charY = Math.floor(this.character!.y / this.gridSize);
+    const charX = Math.floor(character.x / this.gridSize);
+    const charY = Math.floor(character.y / this.gridSize);
 
     for (let row = Math.max(0, charY - 2); row <= Math.min(this.rows - 1, charY + 2); row++) {
       for (let col = Math.max(0, charX - 2); col <= Math.min(this.cols - 1, charX + 2); col++) {
@@ -247,7 +343,7 @@ class MainScene extends Phaser.Scene {
           this.highlightedTiles.push(tile);
 
           tile.setInteractive();
-          tile.on('pointerdown', () => this.moveCharacter(col, row));
+          tile.on('pointerdown', () => this.moveCharacter(character, col, row));
         }
       }
     }
@@ -261,19 +357,23 @@ class MainScene extends Phaser.Scene {
     this.highlightedTiles = [];
   }
 
-  moveCharacter(targetCol: number, targetRow: number) {
-    if (this.character) {
-      this.character.setPosition(
-        targetCol * this.gridSize + this.gridSize / 2,
-        targetRow * this.gridSize + this.gridSize / 2
-      );
+  moveCharacter(character: Phaser.GameObjects.Sprite, targetCol: number, targetRow: number) {
+    character.setPosition(
+      targetCol * this.gridSize + this.gridSize / 2,
+      targetRow * this.gridSize + this.gridSize / 2
+    );
 
-      if (this.characterHealthMenu) {
-        this.characterHealthMenu.setPosition(this.character.x, this.character.y - 60);
-      }
-
-      this.clearHighlightedTiles();
+    if (character === this.character && this.characterHealthMenu) {
+      this.characterHealthMenu.setPosition(character.x, character.y - 60);
+      this.updateFogOfWar(); // Update fog of war when main character moves
     }
+
+    if (character === this.secondCharacter && this.secondCharacterHealthMenu) {
+      this.secondCharacterHealthMenu.setPosition(character.x, character.y - 60);
+      this.updateFogOfWar(); // Update fog of war when second character moves
+    }
+
+    this.clearHighlightedTiles();
   }
 
   highlightEnemyBlocks() {
@@ -348,6 +448,7 @@ class MainScene extends Phaser.Scene {
 
       this.enemies.push({ sprite: enemySprite, health: 100, mana: 50, experience: 0, level: 1, attributes, equipment, x: randomX, y: randomY, healthMenu: enemyHealthMenu });
     }
+    this.updateFogOfWar();
   }
 
   createStatsMenu(health: number, mana: number, experience: number, level: number, x: number, y: number): Phaser.GameObjects.Container {
