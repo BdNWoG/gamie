@@ -2,10 +2,14 @@ import Phaser from 'phaser';
 
 class MainScene extends Phaser.Scene {
   private character: Phaser.GameObjects.Sprite | undefined;
-  private enemies: { sprite: Phaser.GameObjects.Sprite, x: number, y: number }[] = []; // Enemies with their grid positions
+  private characterHealth: number = 100; // Health of the character
+  private characterMana: number = 50;    // Mana of the character
+  private characterExperience: number = 0; // Experience of the character
+  private characterHealthMenu: Phaser.GameObjects.Container | undefined; // Health menu for the character
+  private enemies: { sprite: Phaser.GameObjects.Sprite, health: number, mana: number, experience: number, x: number, y: number, healthMenu: Phaser.GameObjects.Container }[] = []; // Enemies with health, mana, and experience bars
   private gridSize: number = 64; // Size of each grid square (64x64)
-  private rows: number = 40;    // Fixed number of rows (50)
-  private cols: number = 40;    // Fixed number of columns (50)
+  private rows: number = 40; // Fixed number of rows
+  private cols: number = 40; // Fixed number of columns
   private grid: Phaser.GameObjects.Rectangle[][] = [];
   private isDragging: boolean = false;
   private dragStartPoint: { x: number; y: number } = { x: 0, y: 0 };
@@ -40,6 +44,24 @@ class MainScene extends Phaser.Scene {
     );
 
     this.character.setScale(0.4);
+
+    // Create a health, mana, and experience menu for the character
+    this.characterHealthMenu = this.createStatsMenu(this.characterHealth, this.characterMana, this.characterExperience, this.character!.x, this.character!.y - 60);
+    this.characterHealthMenu.setVisible(false); // Initially hide the stats menu
+
+    // Enable hover to show health, mana, and experience menu for character
+    this.character.setInteractive();
+    this.character.on('pointerover', () => {
+      if (this.characterHealthMenu) {
+        this.updateStatsMenu(this.characterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience); // Update character health menu
+        this.characterHealthMenu.setVisible(true); // Show stats menu on hover
+      }
+    });
+    this.character.on('pointerout', () => {
+      if (this.characterHealthMenu) {
+        this.characterHealthMenu.setVisible(false); // Hide stats menu when hover ends
+      }
+    });
 
     // Enable double-click detection on the character
     this.character.setInteractive({ useHandCursor: true });
@@ -102,35 +124,77 @@ class MainScene extends Phaser.Scene {
   showActionMenu() {
     // If a menu already exists, remove it
     if (this.actionMenu) {
-      this.actionMenu.destroy();
-      this.actionMenu = undefined;
+        this.actionMenu.destroy();
+        this.actionMenu = undefined;
     }
 
-    // Create a menu with options for "Move" and "Attack"
-    const menuBackground = this.add.rectangle(0, 0, 120, 80, 0x333333).setOrigin(0);
-    const moveText = this.add.text(10, 10, 'Move', { fontSize: '16px', color: '#fff' });
-    const attackText = this.add.text(10, 40, 'Attack', { fontSize: '16px', color: '#fff' });
+    // Create a menu with options for "Move", "Attack", "Special", "Hold", and "Cancel"
+    const menuWidth = 120;
+    const menuHeight = 180; // Adjusted height to fit the new "Cancel" option
+    const menuBackground = this.add.rectangle(0, 0, menuWidth, menuHeight, 0x333333).setOrigin(0); // Height increased
+    const textStyle = { fontSize: '16px', color: '#fff' };
+
+    const moveText = this.add.text(menuWidth / 2, 10, 'Move', textStyle).setOrigin(0.5);
+    const attackText = this.add.text(menuWidth / 2, 40, 'Attack', textStyle).setOrigin(0.5);
+    const specialText = this.add.text(menuWidth / 2, 70, 'Special', textStyle).setOrigin(0.5);
+    const holdText = this.add.text(menuWidth / 2, 100, 'Hold', textStyle).setOrigin(0.5);
+    const cancelText = this.add.text(menuWidth / 2, 130, 'Cancel', textStyle).setOrigin(0.5); // New "Cancel" option
 
     // Create a container for the menu and position it at the character's location
     this.actionMenu = this.add.container(this.character?.x || 0, this.character?.y || 0, [
       menuBackground,
       moveText,
-      attackText
+      attackText,
+      specialText,
+      holdText,
+      cancelText // Add "Cancel" to the container
     ]);
 
-    // Make the move option interactive
+    // Make the "Move" option interactive
     moveText.setInteractive();
     moveText.on('pointerdown', () => {
-      this.highlightMovableTiles();
-      this.actionMenu?.destroy(); // Remove menu after selecting an action
+        this.highlightMovableTiles();
+        this.actionMenu?.destroy(); // Remove menu after selecting an action
     });
 
-    // Make the attack option interactive
+    // Make the "Attack" option interactive
     attackText.setInteractive();
     attackText.on('pointerdown', () => {
-      this.highlightEnemyBlocks();
-      this.actionMenu?.destroy(); // Remove menu after selecting an action
+        this.highlightEnemyBlocks();
+        this.actionMenu?.destroy(); // Remove menu after selecting an action
     });
+
+    // Make the "Special" option interactive
+    specialText.setInteractive();
+    specialText.on('pointerdown', () => {
+        this.handleSpecialAction();
+        this.actionMenu?.destroy(); // Remove menu after selecting an action
+    });
+
+    // Make the "Hold" option interactive
+    holdText.setInteractive();
+    holdText.on('pointerdown', () => {
+        this.handleHoldAction();
+        this.actionMenu?.destroy(); // Remove menu after selecting an action
+    });
+
+    // Make the "Cancel" option interactive to simply close the menu
+    cancelText.setInteractive();
+    cancelText.on('pointerdown', () => {
+        this.actionMenu?.destroy(); // Close the menu when "Cancel" is clicked
+    });
+  }
+
+  // Placeholder for handling the Special action
+  handleSpecialAction() {
+    console.log("Special action triggered!");
+    // Implement the special action logic here
+  }
+
+  // Placeholder for handling the Hold action
+  handleHoldAction() {
+    console.log("Hold action triggered!");
+    // Implement the hold action logic here
   }
 
   highlightMovableTiles() {
@@ -170,13 +234,20 @@ class MainScene extends Phaser.Scene {
 
   moveCharacter(targetCol: number, targetRow: number) {
     // Move the character to the selected tile
-    this.character?.setPosition(
-      targetCol * this.gridSize + this.gridSize / 2,
-      targetRow * this.gridSize + this.gridSize / 2
-    );
+    if (this.character) {
+      this.character.setPosition(
+        targetCol * this.gridSize + this.gridSize / 2,
+        targetRow * this.gridSize + this.gridSize / 2
+      );
 
-    // Clear the highlighted tiles
-    this.clearHighlightedTiles();
+      // Move the health menu along with the character
+      if (this.characterHealthMenu) {
+        this.characterHealthMenu.setPosition(this.character.x, this.character.y - 60);
+      }
+
+      // Clear the highlighted tiles
+      this.clearHighlightedTiles();
+    }
   }
 
   highlightEnemyBlocks() {
@@ -188,7 +259,7 @@ class MainScene extends Phaser.Scene {
     const charY = Math.floor(this.character!.y / this.gridSize);
 
     // Highlight blocks where enemies are within 1 block of the character
-    this.enemies.forEach(({ sprite, x, y }) => {
+    this.enemies.forEach(({ sprite, x, y, healthMenu }) => {
       const distance = Math.abs(x - charX) + Math.abs(y - charY);
 
       if (distance === 1) {
@@ -200,15 +271,16 @@ class MainScene extends Phaser.Scene {
         // Make the tile clickable to attack the enemy
         tile.setInteractive();
         tile.once('pointerdown', () => {
-          this.killEnemy(sprite, tile);
+          this.killEnemy(sprite, tile, healthMenu);
         });
       }
     });
   }
 
-  killEnemy(enemy: Phaser.GameObjects.Sprite, tile: Phaser.GameObjects.Rectangle) {
-    // Remove the enemy sprite from the scene
+  killEnemy(enemy: Phaser.GameObjects.Sprite, tile: Phaser.GameObjects.Rectangle, healthMenu: Phaser.GameObjects.Container) {
+    // Remove the enemy sprite and health menu from the scene
     enemy.destroy();
+    healthMenu.destroy();
 
     // Remove the tile's highlight and interaction
     tile.setFillStyle(0x000000);
@@ -233,11 +305,86 @@ class MainScene extends Phaser.Scene {
         'enemy'
       );
 
-      enemySprite.setScale(0.4); 
+      enemySprite.setScale(0.4);
 
-      // Store the enemy's grid position
-      this.enemies.push({ sprite: enemySprite, x: randomX, y: randomY });
+      // Create a stats menu (health, mana, experience) for each enemy
+      const enemyHealthMenu = this.createStatsMenu(100, 50, 0, enemySprite.x, enemySprite.y - 60);
+      enemyHealthMenu.setVisible(false); // Initially hide the health menu
+
+      // Enable hover to show health, mana, and experience menu for enemy
+      enemySprite.setInteractive();
+      enemySprite.on('pointerover', () => {
+        if (enemyHealthMenu) {
+          this.updateStatsMenu(enemyHealthMenu, 100, 50, 0); // Assume enemies start with 100 health, 50 mana, 0 experience
+          enemyHealthMenu.setVisible(true); // Show stats menu on hover
+        }
+      });
+      enemySprite.on('pointerout', () => {
+        if (enemyHealthMenu) {
+          enemyHealthMenu.setVisible(false); // Hide stats menu when hover ends
+        }
+      });
+
+      // Store the enemy's grid position and stats menu
+      this.enemies.push({ sprite: enemySprite, health: 100, mana: 50, experience: 0, x: randomX, y: randomY, healthMenu: enemyHealthMenu });
     }
+  }
+
+  createStatsMenu(health: number, mana: number, experience: number, x: number, y: number): Phaser.GameObjects.Container {
+    const menuBackground = this.add.rectangle(0, 0, 80, 60, 0x333333).setOrigin(0.5);
+
+    // Health bar (red) and label
+    const healthBar = this.add.graphics();
+    healthBar.fillStyle(0xff0000, 1);
+    healthBar.fillRect(-32, -20, 64, 5); // Full width (64 pixels)
+
+    const healthLabel = this.add.text(-32, -30, `${health}/100`, { fontSize: '10px', color: '#fff' });
+
+    // Mana bar (blue) and label
+    const manaBar = this.add.graphics();
+    manaBar.fillStyle(0x0000ff, 1);
+    manaBar.fillRect(-32, -10, 64, 5); // Full width (64 pixels)
+
+    const manaLabel = this.add.text(-32, -20, `${mana}/50`, { fontSize: '10px', color: '#fff' });
+
+    // Experience bar (green) and label
+    const experienceBar = this.add.graphics();
+    experienceBar.fillStyle(0x00ff00, 1);
+    experienceBar.fillRect(-32, 0, 64, 5); // Full width (64 pixels)
+
+    const experienceLabel = this.add.text(-32, -10, `${experience}/100`, { fontSize: '10px', color: '#fff' });
+
+    const statsMenu = this.add.container(x, y, [menuBackground, healthBar, healthLabel, manaBar, manaLabel, experienceBar, experienceLabel]);
+    return statsMenu;
+  }
+
+  updateStatsMenu(statsMenu: Phaser.GameObjects.Container, health: number, mana: number, experience: number) {
+    // Update health bar and label
+    const healthBar = statsMenu.getAt(1) as Phaser.GameObjects.Graphics;
+    healthBar.clear();
+    healthBar.fillStyle(0xff0000, 1);
+    healthBar.fillRect(-32, -20, 64, 5); // Full width (64 pixels)
+
+    const healthLabel = statsMenu.getAt(2) as Phaser.GameObjects.Text;
+    healthLabel.setText(`${health}/100`);
+
+    // Update mana bar and label
+    const manaBar = statsMenu.getAt(3) as Phaser.GameObjects.Graphics;
+    manaBar.clear();
+    manaBar.fillStyle(0x0000ff, 1);
+    manaBar.fillRect(-32, -10, 64, 5); // Full width (64 pixels)
+
+    const manaLabel = statsMenu.getAt(4) as Phaser.GameObjects.Text;
+    manaLabel.setText(`${mana}/50`);
+
+    // Update experience bar and label
+    const experienceBar = statsMenu.getAt(5) as Phaser.GameObjects.Graphics;
+    experienceBar.clear();
+    experienceBar.fillStyle(0x00ff00, 1);
+    experienceBar.fillRect(-32, 0, 64, 5); // Full width (64 pixels)
+
+    const experienceLabel = statsMenu.getAt(6) as Phaser.GameObjects.Text;
+    experienceLabel.setText(`${experience}/100`);
   }
 
   startDrag(pointer: Phaser.Input.Pointer) {
