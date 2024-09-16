@@ -54,6 +54,7 @@ class MainScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.cols * this.gridSize, this.rows * this.gridSize);
     this.createGrid();
 
+    // Create the main character in the middle of the grid
     this.character = this.add.sprite(
       (this.cols / 2) * this.gridSize + this.gridSize / 2,
       (this.rows / 2) * this.gridSize + this.gridSize / 2,
@@ -61,9 +62,15 @@ class MainScene extends Phaser.Scene {
     );
     this.character.setScale(0.4);
 
-    this.secondCharacter = this.add.sprite(0, 0, 'character');
+    // Create the second character at the center of the first block (top-left)
+    this.secondCharacter = this.add.sprite(
+      this.gridSize / 2, // X-position (center of the first block)
+      this.gridSize / 2, // Y-position (center of the first block)
+      'character'
+    );
     this.secondCharacter.setScale(0.4);
 
+    // Create stats menu for both characters
     this.characterHealthMenu = this.createStatsMenu(
       this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel, this.character!.x, this.character!.y - 60
     );
@@ -74,56 +81,11 @@ class MainScene extends Phaser.Scene {
     );
     this.secondCharacterHealthMenu.setVisible(false);
 
-    this.character.setInteractive();
-    this.character.on('pointerover', () => {
-      if (this.characterHealthMenu) {
-        this.updateStatsMenu(this.characterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel);
-        this.characterHealthMenu.setVisible(true);
-      }
-    });
-    this.character.on('pointerout', () => {
-      if (this.characterHealthMenu) {
-        this.characterHealthMenu.setVisible(false);
-      }
-    });
+    // Enable hover and click events for both characters
+    this.setupCharacterInteractions(this.character, this.characterHealthMenu);
+    this.setupCharacterInteractions(this.secondCharacter, this.secondCharacterHealthMenu);
 
-    this.secondCharacter.setInteractive();
-    this.secondCharacter.on('pointerover', () => {
-      if (this.secondCharacterHealthMenu) {
-        this.updateStatsMenu(this.secondCharacterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel);
-        this.secondCharacterHealthMenu.setVisible(true);
-      }
-    });
-    this.secondCharacter.on('pointerout', () => {
-      if (this.secondCharacterHealthMenu) {
-        this.secondCharacterHealthMenu.setVisible(false);
-      }
-    });
-
-    this.character?.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown() && this.character) {
-        this.showActionMenu(this.character);
-      }
-    });
-
-    this.secondCharacter?.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown() && this.secondCharacter) {
-        this.showActionMenu(this.secondCharacter);
-      }
-    });
-
-    this.character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.rightButtonDown()) {
-        this.toggleAttributeMenu(this.character!, { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 }, { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null }, this.characterLevel);
-      }
-    });
-
-    this.secondCharacter.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.rightButtonDown()) {
-        this.toggleAttributeMenu(this.secondCharacter!, { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 }, { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null }, this.characterLevel);
-      }
-    });
-
+    // General input for dragging and camera movement
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.startDrag(pointer));
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.drag(pointer));
     this.input.on('pointerup', () => this.stopDrag());
@@ -132,8 +94,45 @@ class MainScene extends Phaser.Scene {
       this.handleZoom(deltaY);
     });
 
+    // Create fog of war and spawn enemies
     this.createFogOfWar();
     this.spawnEnemies();
+  }
+
+  // Setup interaction (hover, left-click, right-click) for characters
+  setupCharacterInteractions(character: Phaser.GameObjects.Sprite, characterHealthMenu: Phaser.GameObjects.Container) {
+    character.setInteractive();
+
+    character.on('pointerover', () => {
+      if (characterHealthMenu) {
+        this.updateStatsMenu(characterHealthMenu, this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel);
+        characterHealthMenu.setVisible(true);
+      }
+    });
+
+    character.on('pointerout', () => {
+      if (characterHealthMenu) {
+        characterHealthMenu.setVisible(false);
+      }
+    });
+
+    // Left-click to show the action menu
+    character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown()) {
+        this.showActionMenu(character);
+      }
+    });
+
+    // Right-click to show the attribute menu
+    character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) {
+        this.toggleAttributeMenu(character, 
+          { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 }, 
+          { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null }, 
+          this.characterLevel
+        );
+      }
+    });
   }
 
   createGrid() {
@@ -176,6 +175,7 @@ class MainScene extends Phaser.Scene {
     const secondCharX = Math.floor(this.secondCharacter!.x / this.gridSize);
     const secondCharY = Math.floor(this.secondCharacter!.y / this.gridSize);
 
+    // Loop through all tiles to update fog visibility
     for (let row = 0; row < this.rows; row++) {
       for (let col = 0; col < this.cols; col++) {
         const distance1 = Math.abs(col - charX) + Math.abs(row - charY);
@@ -359,38 +359,18 @@ class MainScene extends Phaser.Scene {
 
   attackEnemy(enemySprite: Phaser.GameObjects.Sprite) {
     const enemy = this.enemies.find(e => e.sprite === enemySprite);
-  
+
     if (enemy) {
       enemy.health -= 20;
-  
-      // Update stats menu or close if the enemy is dead
       if (enemy.health <= 0) {
         this.killEnemy(enemySprite, this.grid[enemy.y][enemy.x], enemy.healthMenu);
       } else {
         this.updateStatsMenu(enemy.healthMenu, enemy.health, enemy.mana, enemy.experience, enemy.level);
       }
-  
-      // Hide the stats menu after attack
-      enemy.healthMenu.setVisible(false);
     }
-  
-    // Reset attack mode after the attack
+
     this.isAttackMode = false;
     this.clearHighlightedTiles();
-  
-    // Re-enable hover functionality for the enemy sprite
-    enemySprite.on('pointerover', () => {
-      if (enemy?.healthMenu) {
-        this.updateStatsMenu(enemy.healthMenu, enemy.health, enemy.mana, enemy.experience, enemy.level);
-        enemy.healthMenu.setVisible(true);
-      }
-    });
-  
-    enemySprite.on('pointerout', () => {
-      if (enemy?.healthMenu) {
-        enemy.healthMenu.setVisible(false);
-      }
-    });
   }
 
   clearHighlightedTiles() {
@@ -428,23 +408,23 @@ class MainScene extends Phaser.Scene {
   killEnemy(enemy: Phaser.GameObjects.Sprite, tile: Phaser.GameObjects.Rectangle, healthMenu: Phaser.GameObjects.Container) {
     // Clear interactions and highlights for the enemy
     if (enemy.input) {
-      enemy.removeInteractive(); // Remove interactivity first, if input exists
+        enemy.removeInteractive();  // Remove interactivity first, if input exists
     }
-  
+
     // Remove the enemy from the highlighted tiles array if it's there
     this.highlightedTiles = this.highlightedTiles.filter(item => item !== enemy);
-  
+
     // Destroy the health menu and enemy sprite
     healthMenu.destroy();
     enemy.destroy();
-  
+
     // Remove the tile's interactive state and reset its appearance
     tile.setFillStyle(0x000000);
     tile.removeInteractive();
-  
+
     // Remove the enemy from the enemies array
     this.enemies = this.enemies.filter(e => e.sprite !== enemy);
-  
+
     // Clear highlighted tiles after the enemy is killed
     this.clearHighlightedTiles();
   }
