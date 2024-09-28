@@ -4,6 +4,7 @@ export class MainScene extends Phaser.Scene {
   private character: Phaser.GameObjects.Sprite | undefined;
   private secondCharacter: Phaser.GameObjects.Sprite | undefined;
   private characterHealth: number = 100;
+  private secondCharacterHealth: number = 100;
   private characterMana: number = 50;
   private characterExperience: number = 0;
   private characterLevel: number = 1;
@@ -27,16 +28,21 @@ export class MainScene extends Phaser.Scene {
   private gridSize: number = 64;
   private rows: number = 40;
   private cols: number = 40;
-  private grid: Phaser.GameObjects.Rectangle[][] = []; // Declare grid properly
-  private fogLayer: Phaser.GameObjects.Rectangle[][] = []; // Fog of war layer
-  private fogRadius: number = 10; // Radius of visibility in blocks
+  private grid: Phaser.GameObjects.Rectangle[][] = [];
+  private fogLayer: Phaser.GameObjects.Rectangle[][] = [];
+  private fogRadius: number = 10;
   private isDragging: boolean = false;
   private dragStartPoint: { x: number; y: number } = { x: 0, y: 0 };
   private actionMenu: Phaser.GameObjects.Container | undefined;
-  private highlightedTiles: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Sprite)[] = []; // Modified for both rectangles and sprites
-  private isAttackMode: boolean = false; // Attack mode flag
-  private targetedEnemy: Phaser.GameObjects.Sprite | undefined; // Targeted enemy
+  private highlightedTiles: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Sprite)[] = [];
+  private isAttackMode: boolean = false;
+  private targetedEnemy: Phaser.GameObjects.Sprite | undefined;
   private lastClickTime: number = 0;
+
+  // Variables to track the state of the characters' movement during the round
+  private hasActed = { character: false, secondCharacter: false };
+  private hasMoved = { character: false, secondCharacter: false };
+  private nextRoundButton: Phaser.GameObjects.Text | undefined;
 
   constructor() {
     super({ key: 'MainScene' });
@@ -77,13 +83,13 @@ export class MainScene extends Phaser.Scene {
     this.characterHealthMenu.setVisible(false);
 
     this.secondCharacterHealthMenu = this.createStatsMenu(
-      this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel, this.secondCharacter!.x, this.secondCharacter!.y - 60
+      this.secondCharacterHealth, this.characterMana, this.characterExperience, this.characterLevel, this.secondCharacter!.x, this.secondCharacter!.y - 60
     );
     this.secondCharacterHealthMenu.setVisible(false);
 
     // Enable hover and click events for both characters
-    this.setupCharacterInteractions(this.character, this.characterHealthMenu);
-    this.setupCharacterInteractions(this.secondCharacter, this.secondCharacterHealthMenu);
+    this.setupCharacterInteractions(this.character, this.characterHealthMenu, 'character');
+    this.setupCharacterInteractions(this.secondCharacter, this.secondCharacterHealthMenu, 'secondCharacter');
 
     // General input for dragging and camera movement
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.startDrag(pointer));
@@ -97,10 +103,48 @@ export class MainScene extends Phaser.Scene {
     // Create fog of war and spawn enemies
     this.createFogOfWar();
     this.spawnEnemies();
+
+    // Add the "Next Round" button
+    this.addNextRoundButton();
+  }
+
+  // Add "Next Round" button to the top right corner
+  addNextRoundButton() {
+    this.nextRoundButton = this.add.text(this.cameras.main.width - 150, 10, 'Next Round', {
+      fontSize: '20px',
+      color: '#fff',
+      backgroundColor: '#000',
+      padding: { x: 10, y: 5 }
+    }).setScrollFactor(0).setInteractive();
+
+    this.nextRoundButton.on('pointerdown', () => this.resetForNextRound());
+  }
+
+  // Reset characters for the next round and move enemies
+  resetForNextRound() {
+    this.hasActed.character = false;
+    this.hasActed.secondCharacter = false;
+    this.hasMoved.character = false;
+    this.hasMoved.secondCharacter = false;
+
+    // Reset character appearance and interactivity
+    this.character?.clearTint();
+    this.secondCharacter?.clearTint();
+    this.character?.setInteractive();
+    this.secondCharacter?.setInteractive();
+
+    // Move enemies
+    this.enemies.forEach(enemy => {
+      this.moveEnemyTowardsNearestCharacter(enemy);
+    });
   }
 
   // Setup interaction (hover, left-click, right-click) for characters
-  setupCharacterInteractions(character: Phaser.GameObjects.Sprite, characterHealthMenu: Phaser.GameObjects.Container) {
+  setupCharacterInteractions(
+    character: Phaser.GameObjects.Sprite,
+    characterHealthMenu: Phaser.GameObjects.Container,
+    characterKey: 'character' | 'secondCharacter'
+  ) {
     character.setInteractive();
 
     character.on('pointerover', () => {
@@ -116,19 +160,19 @@ export class MainScene extends Phaser.Scene {
       }
     });
 
-    // Left-click to show the action menu
+    // Left-click to show the action menu (only if they haven't acted yet)
     character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown()) {
-        this.showActionMenu(character);
+      if (pointer.leftButtonDown() && !this.hasActed[characterKey]) {
+        this.showActionMenu(character, characterKey);
       }
     });
 
     // Right-click to show the attribute menu
     character.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonDown()) {
-        this.toggleAttributeMenu(character, 
-          { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 }, 
-          { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null }, 
+        this.toggleAttributeMenu(character,
+          { ATT: 100, DEF: 100, SPA: 100, SPD: 100, EXP: 100, VIS: 100, LUC: 100, MOV: 100 },
+          { primaryWeapon: null, secondaryWeapon: null, specialWeapon: null, ornament: null, helmet: null, chestplate: null, leggings: null, boots: null },
           this.characterLevel
         );
       }
@@ -321,7 +365,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Show Action Menu
-  showActionMenu(character: Phaser.GameObjects.Sprite) {
+  showActionMenu(character: Phaser.GameObjects.Sprite, characterKey: 'character' | 'secondCharacter') {
     if (this.actionMenu) {
       this.actionMenu.destroy();
       this.actionMenu = undefined;
@@ -345,21 +389,36 @@ export class MainScene extends Phaser.Scene {
       cancelText
     ]);
 
+    // Disable the "Move" button if the character has already moved
+    if (this.hasMoved[characterKey]) {
+      moveText.setTint(0x888888); // Grey out
+      moveText.disableInteractive(); // Disable interaction
+    }
+
     // Add interaction to menu items
     moveText.setInteractive().on('pointerdown', () => {
-      this.highlightMovableTiles(character);
-      this.actionMenu?.destroy();
+      if (!this.hasMoved[characterKey]) {
+        this.highlightMovableTiles(character);
+        this.actionMenu?.destroy();
+        this.hasActed[characterKey] = true;  // Mark as acted
+        this.hasMoved[characterKey] = true;  // Mark as moved
+        this.greyOutCharacter(character); // Grey out the character after action
+      }
     });
 
     attackText.setInteractive().on('pointerdown', () => {
       this.isAttackMode = true;
       this.highlightEnemyBlocks(character);
       this.actionMenu?.destroy();
+      this.hasActed[characterKey] = true;  // Mark as acted
+      this.greyOutCharacter(character); // Grey out the character after action
     });
 
     specialText.setInteractive().on('pointerdown', () => {
       console.log("Special action triggered");
       this.actionMenu?.destroy();
+      this.hasActed[characterKey] = true;  // Mark as acted
+      this.greyOutCharacter(character); // Grey out the character after action
     });
 
     cancelText.setInteractive().on('pointerdown', () => {
@@ -367,6 +426,12 @@ export class MainScene extends Phaser.Scene {
       this.clearHighlightedTiles();
       this.actionMenu?.destroy();
     });
+  }
+
+  // Grey out the character to show it can't be used again this round
+  greyOutCharacter(character: Phaser.GameObjects.Sprite) {
+    character.setTint(0x888888);
+    character.removeInteractive(); // Disable interaction
   }
 
   // Handle Movement
@@ -409,6 +474,9 @@ export class MainScene extends Phaser.Scene {
       this.secondCharacterHealthMenu.setPosition(character.x, character.y - 60);
     }
 
+    // After moving, show the action menu again with the move button disabled
+    this.showActionMenu(character, character === this.character ? 'character' : 'secondCharacter');
+
     this.clearHighlightedTiles();
   }
 
@@ -446,6 +514,12 @@ export class MainScene extends Phaser.Scene {
         this.killEnemy(enemySprite, this.grid[enemy.y][enemy.x], enemy.healthMenu);
       } else {
         this.updateStatsMenu(enemy.healthMenu, enemy.health, enemy.mana, enemy.experience, enemy.level);
+
+        // Show the health menu briefly after an attack
+        enemy.healthMenu.setVisible(true);
+        this.time.delayedCall(1000, () => {
+          enemy.healthMenu.setVisible(false);
+        });
       }
     }
 
@@ -484,6 +558,12 @@ export class MainScene extends Phaser.Scene {
       const randomX = Phaser.Math.Between(0, this.cols - 1);
       const randomY = Phaser.Math.Between(0, this.rows - 1);
 
+      // Ensure the enemy does not spawn on a character
+      if (this.isTileOccupiedByCharacter(randomX, randomY)) {
+        i--; // Retry spawning
+        continue;
+      }
+
       const enemySprite = this.add.sprite(randomX * this.gridSize + this.gridSize / 2, randomY * this.gridSize + this.gridSize / 2, 'enemy');
       enemySprite.setScale(0.4);
 
@@ -520,6 +600,106 @@ export class MainScene extends Phaser.Scene {
       this.enemies.push({ sprite: enemySprite, health: 100, mana: 50, experience: 0, level: 1, attributes, equipment, x: randomX, y: randomY, healthMenu: enemyHealthMenu });
     }
     this.updateFogOfWar();
+  }
+
+  // Check if a tile is occupied by a character
+  isTileOccupiedByCharacter(x: number, y: number): boolean {
+    const charX = Math.floor(this.character!.x / this.gridSize);
+    const charY = Math.floor(this.character!.y / this.gridSize);
+    const secondCharX = Math.floor(this.secondCharacter!.x / this.gridSize);
+    const secondCharY = Math.floor(this.secondCharacter!.y / this.gridSize);
+
+    return (x === charX && y === charY) || (x === secondCharX && y === secondCharY);
+  }
+
+  // Enemy movement towards nearest character using Dijkstra's algorithm
+  moveEnemyTowardsNearestCharacter(enemy: any) {
+    const nearestCharacter = this.getNearestCharacter(enemy);
+    if (!nearestCharacter) return;
+
+    const path = this.findShortestPath(enemy, nearestCharacter);
+    if (path.length > 1) {
+      const nextStep = path[1];
+      enemy.sprite.setPosition(nextStep.col * this.gridSize + this.gridSize / 2, nextStep.row * this.gridSize + this.gridSize / 2);
+      enemy.x = nextStep.col;
+      enemy.y = nextStep.row;
+
+      // If adjacent to the character, attack
+      if (Math.abs(nextStep.col - nearestCharacter.x) + Math.abs(nextStep.row - nearestCharacter.y) === 1) {
+        this.attackCharacter(nearestCharacter.key);
+      }
+    }
+    this.updateFogOfWar();
+  }
+
+  // Find nearest character (Dijkstra's)
+  getNearestCharacter(enemy: any) {
+    const characters = [
+      { sprite: this.character, x: Math.floor(this.character!.x / this.gridSize), y: Math.floor(this.character!.y / this.gridSize), key: 'character' },
+      { sprite: this.secondCharacter, x: Math.floor(this.secondCharacter!.x / this.gridSize), y: Math.floor(this.secondCharacter!.y / this.gridSize), key: 'secondCharacter' }
+    ];
+    return characters.reduce((nearest, char) => {
+      const dist = Math.abs(char.x - enemy.x) + Math.abs(char.y - enemy.y);
+      if (!nearest || dist < Math.abs(nearest.x - enemy.x) + Math.abs(nearest.y - enemy.y)) {
+        return char;
+      }
+      return nearest;
+    }, null as any);
+  }
+
+  // Find shortest path using Dijkstra's algorithm
+  findShortestPath(enemy: any, character: any) {
+    const dist: number[][] = Array(this.rows).fill(null).map(() => Array(this.cols).fill(Infinity));
+    const prev: { row: number; col: number }[][] = Array(this.rows).fill(null).map(() => Array(this.cols).fill(null));
+
+    const queue = [{ row: enemy.y, col: enemy.x }];
+    dist[enemy.y][enemy.x] = 0;
+
+    while (queue.length > 0) {
+      const { row, col } = queue.shift()!;
+      const currentDist = dist[row][col];
+
+      const neighbors = [
+        { row: row - 1, col },
+        { row: row + 1, col },
+        { row, col: col - 1 },
+        { row, col: col + 1 }
+      ].filter(n => n.row >= 0 && n.row < this.rows && n.col >= 0 && n.col < this.cols);
+
+      neighbors.forEach(n => {
+        if (dist[n.row][n.col] > currentDist + 1) {
+          dist[n.row][n.col] = currentDist + 1;
+          prev[n.row][n.col] = { row, col };
+          queue.push(n);
+        }
+      });
+    }
+
+    const path: { row: number; col: number }[] = [];
+    let current = { row: character.y, col: character.x };
+    while (current && (current.row !== enemy.y || current.col !== enemy.x)) {
+      path.push(current);
+      current = prev[current.row][current.col];
+    }
+    path.reverse();
+    return path;
+  }
+
+  // Character takes damage
+  attackCharacter(characterKey: 'character' | 'secondCharacter') {
+    if (characterKey === 'character') {
+      this.characterHealth -= 10;
+      this.updateStatsMenu(this.characterHealthMenu!, this.characterHealth, this.characterMana, this.characterExperience, this.characterLevel);
+      if (this.characterHealth <= 0) {
+        this.character?.destroy();
+      }
+    } else {
+      this.secondCharacterHealth -= 10;
+      this.updateStatsMenu(this.secondCharacterHealthMenu!, this.secondCharacterHealth, this.characterMana, this.characterExperience, this.characterLevel);
+      if (this.secondCharacterHealth <= 0) {
+        this.secondCharacter?.destroy();
+      }
+    }
   }
 
   // Clear Highlighted Tiles
