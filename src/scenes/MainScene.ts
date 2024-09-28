@@ -171,7 +171,7 @@ export class MainScene extends Phaser.Scene {
     this.updateFogOfWar();
   }
 
-  // Fixed: Update Fog of War based on character and enemy positions
+  // Update Fog of War based on character and enemy positions
   updateFogOfWar() {
     const charX = Math.floor(this.character!.x / this.gridSize);
     const charY = Math.floor(this.character!.y / this.gridSize);
@@ -181,11 +181,9 @@ export class MainScene extends Phaser.Scene {
     // Loop through all tiles to update fog visibility
     for (let row = 0; row < this.rows; row++) {
       for (let col = 0; col < this.cols; col++) {
-        // Calculate the Manhattan distance from both characters
         const distanceFromMainChar = Math.abs(col - charX) + Math.abs(row - charY);
         const distanceFromSecondChar = Math.abs(col - secondCharX) + Math.abs(row - secondCharY);
 
-        // If within fogRadius of either character, remove fog
         if (distanceFromMainChar <= this.fogRadius || distanceFromSecondChar <= this.fogRadius) {
           this.fogLayer[row][col].setVisible(false); // Clear fog
         } else {
@@ -194,7 +192,6 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Update enemy visibility
     this.enemies.forEach(({ sprite, x, y }) => {
       const distanceFromMainChar = Math.abs(x - charX) + Math.abs(y - charY);
       const distanceFromSecondChar = Math.abs(x - secondCharX) + Math.abs(y - secondCharY);
@@ -356,7 +353,7 @@ export class MainScene extends Phaser.Scene {
 
     attackText.setInteractive().on('pointerdown', () => {
       this.isAttackMode = true;
-      this.highlightEnemyBlocks();
+      this.highlightEnemyBlocks(character);
       this.actionMenu?.destroy();
     });
 
@@ -401,9 +398,11 @@ export class MainScene extends Phaser.Scene {
       targetRow * this.gridSize + this.gridSize / 2
     );
 
+    // Update fog of war after movement
+    this.updateFogOfWar();
+
     if (character === this.character && this.characterHealthMenu) {
       this.characterHealthMenu.setPosition(character.x, character.y - 60);
-      this.updateFogOfWar();
     }
 
     if (character === this.secondCharacter && this.secondCharacterHealthMenu) {
@@ -414,12 +413,13 @@ export class MainScene extends Phaser.Scene {
   }
 
   // Highlight Enemies for Attack
-  highlightEnemyBlocks() {
+  highlightEnemyBlocks(character: Phaser.GameObjects.Sprite) {
     this.clearHighlightedTiles();
 
+    const charX = Math.floor(character.x / this.gridSize);
+    const charY = Math.floor(character.y / this.gridSize);
+
     this.enemies.forEach(({ sprite, x, y }) => {
-      const charX = Math.floor(this.character!.x / this.gridSize);
-      const charY = Math.floor(this.character!.y / this.gridSize);
       const distance = Math.abs(x - charX) + Math.abs(y - charY);
 
       if (distance <= 1) {
